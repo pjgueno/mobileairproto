@@ -7,7 +7,6 @@ Password	fs_pwd
 Bool		wifi_permanent
 Bool		npm_read
 Bool		bmx280_read
-String		height_above_sealevel
 Bool        has_gps
 Bool		ccs811_read
 Bool		enveano2_read

@@ -65,8 +65,8 @@ input[type=submit][form=secondar]:hover{background:#aaa}\
 .panels{min-height:200px;overflow:hidden;padding:20px;border:2px solid #438DBF;margin-bottom:1em;}\
 .radio{display:none}.panel{display:none}\
 .canvas{min-height:118px;background:#438DBF;margin-bottom:20px;}\
-#r8:checked~.panels>#panel8,#r7:checked~.panels>#panel7,#r6:checked~.panels>#panel6,#r5:checked~.panels>#panel5,#r4:checked~.panels>#panel4,#r3:checked~.panels>#panel3,#r2:checked~.panels>#panel2,#r1:checked~.panels>#panel1{display:block}\
-#r8:checked~.tabs>#tab8,#r7:checked~.tabs>#tab7,#r6:checked~.tabs>#tab6,#r5:checked~.tabs>#tab5,#r4:checked~.tabs>#tab4,#r3:checked~.tabs>#tab3,#r2:checked~.tabs>#tab2,#r1:checked~.tabs>#tab1{background:#438DBF;color:#fff}";
+#r5:checked~.panels>#panel5,#r4:checked~.panels>#panel4,#r3:checked~.panels>#panel3,#r2:checked~.panels>#panel2,#r1:checked~.panels>#panel1{display:block}\
+#r5:checked~.tabs>#tab5,#r4:checked~.tabs>#tab4,#r3:checked~.tabs>#tab3,#r2:checked~.tabs>#tab2,#r1:checked~.tabs>#tab1{background:#438DBF;color:#fff}";
 
 #define STATIC_PREFIX "/" INTL_LANG "_s1"
 
@@ -142,7 +142,7 @@ const char WEB_BR_FORM[] PROGMEM = "<br/></form>";
 const char WEB_BR_LF_B[] PROGMEM = "<br/>\n<b>";
 const char WEB_LF_B[] PROGMEM = "\n<b>";
 const char WEB_CSV[] PROGMEM = "CSV";
-const char SDCARD[] PROGMEM = "Activer SD carte";
+const char SDCARD[] PROGMEM = "SD";
 const char WEB_MADAVI[] PROGMEM = "<a target='_blank' href='https://www.madavi.de/ok-lab-stuttgart/'>Madavi.de</a>";
 const char WEB_SENSORCOMMUNITY[] PROGMEM = "<a target='_blank' href='https://archive.sensor.community/00disclamer.md'>Sensor.Community</a>";
 const char WEB_HTTPS[] PROGMEM = "HTTPS";

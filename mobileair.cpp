@@ -10,9 +10,6 @@ String SOFTWARE_VERSION_SHORT(SOFTWARE_VERSION_STR_SHORT);
 #include "ccs811.h"
 #include <FastLED.h>
 #include <TinyGPSPlus.h>
-#include "FS.h"
-#include "SD.h"
-#include <SPI.h>
 
 #include "./Fonts/oledfont.h"
 #include <SSD1306Wire.h>
@@ -20,6 +17,8 @@ String SOFTWARE_VERSION_SHORT(SOFTWARE_VERSION_STR_SHORT);
 // includes ESP32 libraries
 #define FORMAT_SPIFFS_IF_FAILED true
 #include <FS.h>
+#include <SD.h>
+#include <SPI.h>
 #include <HTTPClient.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
@@ -72,7 +71,6 @@ namespace cfg
 	bool enveano2_read = ENVEANO2_READ;
 
 	// Location
-	char height_above_sealevel[8] = "0"; //enlever car GPS ?
 	bool has_gps = HAS_GPS;
 
 	// send to "APIs"
@@ -1551,13 +1549,137 @@ static float dew_point(const float temperature, const float humidity)
 }
 
 /*****************************************************************
+ * GPS                                                     *
+ *****************************************************************/
+
+bool coordinates;
+
+bool newGPSdata = false;
+
+struct GPS
+{
+	uint16_t year;
+	uint8_t month;
+	uint8_t day;
+	uint8_t hour;
+	uint8_t minute;
+	uint8_t second;
+	double latitude;
+	double longitude;
+	double altitude;
+	bool checked;
+};
+
+struct GPS GPSdata
+{
+	0, 0, 0, 0, 0, 0, -1.0, -1.0, -1.0, false
+};
+
+static struct GPS getGPSdata()
+{
+
+	struct GPS result;
+	Debug.print(F("Location: "));
+	if (gps.location.isValid())
+	{
+		Debug.print(gps.location.lat(), 6);
+		Debug.print(F(","));
+		Debug.print(gps.location.lng(), 6);
+		Debug.print(F(" | "));
+
+		result.latitude = gps.location.lat();
+		result.longitude = gps.location.lng();
+	}
+	else
+	{
+		Debug.print(F("INVALID"));
+		Debug.println();
+		result.checked = false;
+		return result;
+	}
+
+	Debug.print(F("Altitude: "));
+	if (gps.altitude.isValid())
+	{
+		Debug.print(gps.altitude.meters());
+		Debug.print(F(" | "));
+		result.altitude = gps.altitude.meters();
+	}
+	else
+	{
+		Debug.print(F("INVALID"));
+		result.checked = false;
+		Debug.println();
+		return result;
+	}
+
+	Debug.print(F("Date/Time: "));
+	if (gps.date.isValid())
+	{
+		Debug.print(gps.date.month());
+		Debug.print(F("/"));
+		Debug.print(gps.date.day());
+		Debug.print(F("/"));
+		Debug.print(gps.date.year());
+
+		result.month = gps.date.month();
+		result.day = gps.date.day();
+		result.year = gps.date.year();
+	}
+	else
+	{
+		Debug.print(F("INVALID"));
+		Debug.println();
+		result.checked = false;
+		return result;
+	}
+
+	Debug.print(F(" "));
+	if (gps.time.isValid())
+	{
+		if (gps.time.hour() < 10)
+			Debug.print(F("0"));
+		Debug.print(gps.time.hour());
+		Debug.print(F(":"));
+		if (gps.time.minute() < 10)
+			Debug.print(F("0"));
+		Debug.print(gps.time.minute());
+		Debug.print(F(":"));
+		if (gps.time.second() < 10)
+			Debug.print(F("0"));
+		Debug.print(gps.time.second());
+
+		result.hour = gps.time.hour();
+		result.minute = gps.time.minute();
+		result.second = gps.time.second();
+	}
+	else
+	{
+		Debug.print(F("INVALID"));
+		Debug.println();
+		result.checked = false;
+		return result;
+	}
+
+	Debug.println();
+	result.checked = true;
+	return result;
+}
+
+/*****************************************************************
  * Pressure at sea level function                                     *
  *****************************************************************/
 static float pressure_at_sealevel(const float temperature, const float pressure)
 {
 	float pressure_at_sealevel;
 
-	pressure_at_sealevel = pressure * pow(((temperature + 273.15f) / (temperature + 273.15f + (0.0065f * readCorrectionOffset(cfg::height_above_sealevel)))), -5.255f);
+	if(cfg::has_gps && GPSdata.checked){
+	pressure_at_sealevel = pressure * pow(((temperature + 273.15f) / (temperature + 273.15f + (0.0065f * readCorrectionOffset(String(GPSdata.altitude).c_str())))), -5.255f);
+	}else
+	{
+	pressure_at_sealevel = pressure * pow(((temperature + 273.15f) / (temperature + 273.15f + (0.0065f * readCorrectionOffset("0")))), -5.255f);
+	}
+
 
 	return pressure_at_sealevel;
 }
@@ -1922,44 +2044,29 @@ static void webserver_config_send_body_get(String &page_content)
 					  "<input form='main' class='radio' id='r3' name='group' type='radio'>"
 					  "<input form='main' class='radio' id='r4' name='group' type='radio'>"
 					  "<input form='main' class='radio' id='r5' name='group' type='radio'>"
-					  "<input form='main' class='radio' id='r6' name='group' type='radio'>"
-					  "<input form='main' class='radio' id='r7' name='group' type='radio'>"
-					  "<input form='main' class='radio' id='r8' name='group' type='radio'>"
 					  "<div class='tabs'>"
 					  "<label class='tab' id='tab1' for='r1'>");
 	page_content += FPSTR(INTL_WIFI_SETTINGS);
 	page_content += F("</label>"
 					  "<label class='tab' id='tab2' for='r2'>");
-	page_content += FPSTR(INTL_LORA_SETTINGS);
-	page_content += F("</label>"
-					  "<label class='tab' id='tab3' for='r3'>");
-	page_content += FPSTR(INTL_NBIOT_SETTINGS);
-	page_content += F("</label>"
-					  "<label class='tab' id='tab4' for='r4'>");
 	page_content += FPSTR(INTL_MORE_SETTINGS);
 	page_content += F("</label>"
-					  "<label class='tab' id='tab5' for='r5'>");
+					  "<label class='tab' id='tab3' for='r3'>");
 	page_content += FPSTR(INTL_SENSORS);
 	page_content += F("</label>"
-					  "<label class='tab' id='tab6' for='r6'>");
+					  "<label class='tab' id='tab4' for='r4'>");
 	page_content += FPSTR(INTL_LEDS);
 	page_content += F("</label>"
-					  "<label class='tab' id='tab7' for='r7'>");
+					  "<label class='tab' id='tab5' for='r5'>");
 	page_content += FPSTR(INTL_APIS);
-	page_content += F("</label>"
-					  "<label class='tab' id='tab8' for='r8'>");
-	page_content += FPSTR(INTL_RGPD);
 	page_content += F("</label></div>"
 					  "<div class='panels'>"
 					  "<div class='panel' id='panel1'>");
 
-	// server.sendContent(page_content);
-	// page_content = emptyString;
-
 	add_form_checkbox(Config_wifi_permanent, FPSTR(INTL_WIFI_PERMANENT));
 	page_content += FPSTR(BR_TAG);
-	page_content = FPSTR(INTL_FS_WIFI_DESCRIPTION);
-	page_content += FPSTR(BR_TAG);
+	//page_content = FPSTR(INTL_FS_WIFI_DESCRIPTION);
+	// page_content += FPSTR(BR_TAG);
 	page_content += FPSTR(TABLE_TAG_OPEN);
 	add_form_input(page_content, Config_fs_ssid, FPSTR(INTL_FS_WIFI_NAME), LEN_FS_SSID - 1);
 	add_form_input(page_content, Config_fs_pwd, FPSTR(INTL_PASSWORD), LEN_CFG_PASSWORD - 1);
@@ -1971,10 +2078,8 @@ static void webserver_config_send_body_get(String &page_content)
 	page_content = tmpl(FPSTR(WEB_DIV_PANEL), String(2));
 
 	page_content += F("<b>" INTL_LOCATION "</b>&nbsp;");
-	page_content += FPSTR(TABLE_TAG_OPEN);
-	add_form_input(page_content, Config_height_above_sealevel, FPSTR(INTL_HEIGHT_ABOVE_SEALEVEL), LEN_HEIGHT_ABOVE_SEALEVEL - 1);
-	page_content += FPSTR(TABLE_TAG_CLOSE_BR);
-	add_form_checkbox(Config_has_gps, FPSTR(INTL_WIFI_PERMANENT));
+	page_content += FPSTR("<br/>");
+	add_form_checkbox(Config_has_gps, FPSTR(INTL_GPS));
 
 	// Paginate page after ~ 1500 Bytes
 
@@ -2049,10 +2154,9 @@ static void webserver_config_send_body_get(String &page_content)
 
 	page_content = tmpl(FPSTR(WEB_DIV_PANEL), String(5));
 
-	page_content += FPSTR("<b>");
 	add_form_checkbox(Config_send2csv, FPSTR(WEB_CSV));
+	page_content += FPSTR("<br/>");
 	add_form_checkbox(Config_has_sdcard, FPSTR(SDCARD));
-	//ADD SD card
 
 	server.sendContent(page_content);
 	page_content = emptyString;
@@ -3185,116 +3289,6 @@ static void fetchSensorCairsens(String &s)
 }
 
 /*****************************************************************
- * GPS                                                     *
- *****************************************************************/
-
-bool coordinates;
-
-struct GPS
-{
-	uint16_t year;
-	uint8_t month;
-	uint8_t day;
-	uint8_t hour;
-	uint8_t minute;
-	uint8_t second;
-	double latitude;
-	double longitude;
-	double altitude;
-	bool checked;
-};
-
-struct GPS GPSdata
-{
-	0, 0, 0, 0, 0, 0, -1.0, -1.0, -1.0, false
-};
-
-static struct GPS getGPSdata()
-{
-
-	struct GPS result;
-	Debug.print(F("Location: "));
-	if (gps.location.isValid())
-	{
-		Debug.print(gps.location.lat(), 6);
-		Debug.print(F(","));
-		Debug.print(gps.location.lng(), 6);
-
-		result.latitude = gps.location.lat();
-		result.longitude = gps.location.lng();
-	}
-	else
-	{
-		Debug.print(F("INVALID"));
-		result.checked = false;
-		return result;
-	}
-
-	Debug.print(F("Altitude: "));
-	if (gps.altitude.isValid())
-	{
-		Debug.print(gps.altitude.meters());
-		result.altitude = gps.altitude.meters();
-	}
-	else
-	{
-		Debug.print(F("INVALID"));
-		result.checked = false;
-		return result;
-	}
-
-	Debug.print(F("  Date/Time: "));
-	if (gps.date.isValid())
-	{
-		Debug.print(gps.date.month());
-		Debug.print(F("/"));
-		Debug.print(gps.date.day());
-		Debug.print(F("/"));
-		Debug.print(gps.date.year());
-
-		result.month = gps.date.month();
-		result.day = gps.date.day();
-		result.year = gps.date.year();
-	}
-	else
-	{
-		Debug.print(F("INVALID"));
-		result.checked = false;
-		return result;
-	}
-
-	Debug.print(F(" "));
-	if (gps.time.isValid())
-	{
-		if (gps.time.hour() < 10)
-			Debug.print(F("0"));
-		Debug.print(gps.time.hour());
-		Debug.print(F(":"));
-		if (gps.time.minute() < 10)
-			Debug.print(F("0"));
-		Debug.print(gps.time.minute());
-		Debug.print(F(":"));
-		if (gps.time.second() < 10)
-			Debug.print(F("0"));
-		Debug.print(gps.time.second());
-
-		result.hour = gps.time.hour();
-		result.minute = gps.time.minute();
-		result.second = gps.time.second();
-	}
-	else
-	{
-		Debug.print(F("INVALID"));
-		result.checked = false;
-		return result;
-	}
-
-	Debug.println();
-	result.checked = true;
-	return result;
-}
-
-/*****************************************************************
  * display values                                                *
  *****************************************************************/
 static void display_values_oled() //COMPLETER LES ECRANS
@@ -3739,262 +3733,9 @@ static void powerOnTestSensors()
 			ccs811_init_failed = true;
 		}
 	}
-}
 
-static void logEnabledAPIs()
-{
 
-	if (cfg::send2csv)
-	{
-		debug_outln_info(F("Serial as CSV"));
-	}
-}
-
-/*****************************************************************
- * Check stack                                                    *
- *****************************************************************/
-void *StackPtrAtStart;
-void *StackPtrEnd;
-UBaseType_t watermarkStart;
-
-/*****************************************************************
- * SD card                                                  *
- *****************************************************************/
-
-// char data_file[24];
-
-String file_name;
-
-static void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
-{
-	Serial.printf("Listing directory: %s\n", dirname);
-
-	File root = fs.open(dirname);
-	if (!root)
-	{
-		Serial.println("Failed to open directory");
-		return;
-	}
-	if (!root.isDirectory())
-	{
-		Serial.println("Not a directory");
-		return;
-	}
-
-	File file = root.openNextFile();
-	while (file)
-	{
-		if (file.isDirectory())
-		{
-			Serial.print("  DIR : ");
-			Serial.println(file.name());
-			if (levels)
-			{
-				listDir(fs, file.name(), levels - 1);
-			}
-		}
-		else
-		{
-			Serial.print("  FILE: ");
-			Serial.print(file.name());
-			Serial.print("  SIZE: ");
-			Serial.println(file.size());
-		}
-		file = root.openNextFile();
-	}
-}
-
-static void createDir(fs::FS &fs, const char *path)
-{
-	Serial.printf("Creating Dir: %s\n", path);
-	if (fs.mkdir(path))
-	{
-		Serial.println("Dir created");
-	}
-	else
-	{
-		Serial.println("mkdir failed");
-	}
-}
-
-static void removeDir(fs::FS &fs, const char *path)
-{
-	Serial.printf("Removing Dir: %s\n", path);
-	if (fs.rmdir(path))
-	{
-		Serial.println("Dir removed");
-	}
-	else
-	{
-		Serial.println("rmdir failed");
-	}
-}
-
-static void readFile(fs::FS &fs, const char *path)
-{
-	Serial.printf("Reading file: %s\n", path);
-
-	File file = fs.open(path);
-	if (!file)
-	{
-		Serial.println("Failed to open file for reading");
-		return;
-	}
-
-	Serial.print("Read from file: ");
-	while (file.available())
-	{
-		Serial.write(file.read());
-	}
-	file.close();
-}
-
-static void writeFile(fs::FS &fs, const char *path, const char *message)
-{
-	Serial.printf("Writing file: %s\n", path);
-
-	File file = fs.open(path, FILE_WRITE);
-	if (!file)
-	{
-		Serial.println("Failed to open file for writing");
-		return;
-	}
-	if (file.print(message))
-	{
-		Serial.println("File written");
-	}
-	else
-	{
-		Serial.println("Write failed");
-	}
-	file.close();
-}
-
-static void appendFile(fs::FS &fs, const char *path, const char *message)
-{
-	Serial.printf("Appending to file: %s\n", path);
-
-	File file = fs.open(path, FILE_APPEND);
-	if (!file)
-	{
-		Serial.println("Failed to open file for appending");
-		return;
-	}
-	if (file.print(message))
-	{
-		Serial.println("Message appended");
-	}
-	else
-	{
-		Serial.println("Append failed");
-	}
-	file.close();
-}
-
-static void renameFile(fs::FS &fs, const char *path1, const char *path2)
-{
-	Serial.printf("Renaming file %s to %s\n", path1, path2);
-	if (fs.rename(path1, path2))
-	{
-		Serial.println("File renamed");
-	}
-	else
-	{
-		Serial.println("Rename failed");
-	}
-}
-
-static void deleteFile(fs::FS &fs, const char *path)
-{
-	Serial.printf("Deleting file: %s\n", path);
-	if (fs.remove(path))
-	{
-		Serial.println("File deleted");
-	}
-	else
-	{
-		Serial.println("Delete failed");
-	}
-}
-
-static void testFileIO(fs::FS &fs, const char *path)
-{
-	File file = fs.open(path);
-	static uint8_t buf[512];
-	size_t len = 0;
-	uint32_t start = millis();
-	uint32_t end = start;
-	if (file)
-	{
-		len = file.size();
-		size_t flen = len;
-		start = millis();
-		while (len)
-		{
-			size_t toRead = len;
-			if (toRead > 512)
-			{
-				toRead = 512;
-			}
-			file.read(buf, toRead);
-			len -= toRead;
-		}
-		end = millis() - start;
-		Serial.printf("%u bytes read for %u ms\n", flen, end);
-		file.close();
-	}
-	else
-	{
-		Serial.println("Failed to open file for reading");
-	}
-
-	file = fs.open(path, FILE_WRITE);
-	if (!file)
-	{
-		Serial.println("Failed to open file for writing");
-		return;
-	}
-
-	size_t i;
-	start = millis();
-	for (i = 0; i < 2048; i++)
-	{
-		file.write(buf, 512);
-	}
-	end = millis() - start;
-	Serial.printf("%u bytes written for %u ms\n", 2048 * 512, end);
-	file.close();
-}
-
-/*****************************************************************
- * The Setup                                                     *
- *****************************************************************/
-
-void setup()
-{
-	void *SpStart = NULL;
-	StackPtrAtStart = (void *)&SpStart;
-	watermarkStart = uxTaskGetStackHighWaterMark(NULL);
-	StackPtrEnd = StackPtrAtStart - watermarkStart;
-
-	Debug.begin(115200); // Output to Serial at 115200 baud
-	Debug.println(F("Starting"));
-
-	Debug.printf("\r\n\r\nAddress of Stackpointer near start is:  %p \r\n", (void *)StackPtrAtStart);
-	Debug.printf("End of Stack is near: %p \r\n", (void *)StackPtrEnd);
-	Debug.printf("Free Stack at setup is:  %d \r\n", (uint32_t)StackPtrAtStart - (uint32_t)StackPtrEnd);
-
-	esp_chipid = String((uint16_t)(ESP.getEfuseMac() >> 32), HEX); // for esp32
-	esp_chipid += String((uint32_t)ESP.getEfuseMac(), HEX);
-	esp_chipid.toUpperCase();
-	cfg::initNonTrivials(esp_chipid.c_str());
-	WiFi.persistent(false);
-
-	debug_outln_info(F("MobileAir: " SOFTWARE_VERSION_STR "/"), String(CURRENT_LANG));
-
-	init_config();
-
-	if (cfg::has_sdcard)
+if (cfg::has_sdcard)
 	{
 		if (!SD.begin(5))
 		{
@@ -4030,6 +3771,276 @@ void setup()
 		uint64_t cardSize = SD.cardSize() / (1024 * 1024);
 		Debug.printf("SD Card Size: %lluMB\n", cardSize);
 	}
+
+
+
+
+
+
+
+}
+
+static void logEnabledAPIs()
+{
+
+	if (cfg::send2csv)
+	{
+		debug_outln_info(F("Serial as CSV"));
+	}
+}
+
+/*****************************************************************
+ * Check stack                                                    *
+ *****************************************************************/
+void *StackPtrAtStart;
+void *StackPtrEnd;
+UBaseType_t watermarkStart;
+
+/*****************************************************************
+ * SD card                                                  *
+ *****************************************************************/
+
+// char data_file[24];
+
+String file_name;
+
+static void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
+{
+	Debug.printf("Listing directory: %s\n", dirname);
+
+	File root = fs.open(dirname);
+	if (!root)
+	{
+		Debug.println("Failed to open directory");
+		return;
+	}
+	if (!root.isDirectory())
+	{
+		Debug.println("Not a directory");
+		return;
+	}
+
+	File file = root.openNextFile();
+	while (file)
+	{
+		if (file.isDirectory())
+		{
+			Debug.print("  DIR : ");
+			Debug.println(file.name());
+			if (levels)
+			{
+				listDir(fs, file.name(), levels - 1);
+			}
+		}
+		else
+		{
+			Debug.print("  FILE: ");
+			Debug.print(file.name());
+			Debug.print("  SIZE: ");
+			Debug.println(file.size());
+		}
+		file = root.openNextFile();
+	}
+}
+
+static void createDir(fs::FS &fs, const char *path)
+{
+	Debug.printf("Creating Dir: %s\n", path);
+	if (fs.mkdir(path))
+	{
+		Debug.println("Dir created");
+	}
+	else
+	{
+		Debug.println("mkdir failed");
+	}
+}
+
+static void removeDir(fs::FS &fs, const char *path)
+{
+	Debug.printf("Removing Dir: %s\n", path);
+	if (fs.rmdir(path))
+	{
+		Debug.println("Dir removed");
+	}
+	else
+	{
+		Debug.println("rmdir failed");
+	}
+}
+
+static void readFile(fs::FS &fs, const char *path)
+{
+	Debug.printf("Reading file: %s\n", path);
+
+	File file = fs.open(path);
+	if (!file)
+	{
+		Debug.println("Failed to open file for reading");
+		return;
+	}
+
+	Debug.print("Read from file: ");
+	while (file.available())
+	{
+		Serial.write(file.read());
+	}
+	file.close();
+}
+
+static void writeFile(fs::FS &fs, const char *path, const char *message)
+{
+	Debug.printf("Writing file: %s\n", path);
+
+	File file = fs.open(path, FILE_WRITE);
+	if (!file)
+	{
+		Debug.println("Failed to open file for writing");
+		return;
+	}
+	if (file.print(message))
+	{
+		Debug.println("File written");
+	}
+	else
+	{
+		Debug.println("Write failed");
+	}
+	file.close();
+}
+
+static void appendFile(fs::FS &fs, const char *path, const char *message)
+{
+	Debug.printf("Appending to file: %s\n", path);
+
+	File file = fs.open(path, FILE_APPEND);
+	if (!file)
+	{
+		Debug.println("Failed to open file for appending");
+		return;
+	}
+	if (file.print(message))
+	{
+		Debug.println("Message appended");
+	}
+	else
+	{
+		Debug.println("Append failed");
+	}
+	file.close();
+}
+
+static void renameFile(fs::FS &fs, const char *path1, const char *path2)
+{
+	Debug.printf("Renaming file %s to %s\n", path1, path2);
+	if (fs.rename(path1, path2))
+	{
+		Debug.println("File renamed");
+	}
+	else
+	{
+		Debug.println("Rename failed");
+	}
+}
+
+static void deleteFile(fs::FS &fs, const char *path)
+{
+	Debug.printf("Deleting file: %s\n", path);
+	if (fs.remove(path))
+	{
+		Debug.println("File deleted");
+	}
+	else
+	{
+		Debug.println("Delete failed");
+	}
+}
+
+static void testFileIO(fs::FS &fs, const char *path)
+{
+	File file = fs.open(path);
+	static uint8_t buf[512];
+	size_t len = 0;
+	uint32_t start = millis();
+	uint32_t end = start;
+	if (file)
+	{
+		len = file.size();
+		size_t flen = len;
+		start = millis();
+		while (len)
+		{
+			size_t toRead = len;
+			if (toRead > 512)
+			{
+				toRead = 512;
+			}
+			file.read(buf, toRead);
+			len -= toRead;
+		}
+		end = millis() - start;
+		Debug.printf("%u bytes read for %u ms\n", flen, end);
+		file.close();
+	}
+	else
+	{
+		Debug.println("Failed to open file for reading");
+	}
+
+	file = fs.open(path, FILE_WRITE);
+	if (!file)
+	{
+		Debug.println("Failed to open file for writing");
+		return;
+	}
+
+	size_t i;
+	start = millis();
+	for (i = 0; i < 2048; i++)
+	{
+		file.write(buf, 512);
+	}
+	end = millis() - start;
+	Debug.printf("%u bytes written for %u ms\n", 2048 * 512, end);
+	file.close();
+}
+
+/*****************************************************************
+ * The Setup                                                     *
+ *****************************************************************/
+
+void setup()
+{
+	void *SpStart = NULL;
+	StackPtrAtStart = (void *)&SpStart;
+	watermarkStart = uxTaskGetStackHighWaterMark(NULL);
+	StackPtrEnd = StackPtrAtStart - watermarkStart;
+
+	Debug.begin(115200); // Output to Serial at 115200 baud
+	Debug.println(F("Starting"));
+
+	  Debug.print("MOSI: ");
+  Debug.println(MOSI);
+  Debug.print("MISO: ");
+  Debug.println(MISO);
+  Debug.print("SCK: ");
+  Debug.println(SCK);
+  Debug.print("SS: ");
+  Debug.println(SS);  
+
+	Debug.printf("\r\n\r\nAddress of Stackpointer near start is:  %p \r\n", (void *)StackPtrAtStart);
+	Debug.printf("End of Stack is near: %p \r\n", (void *)StackPtrEnd);
+	Debug.printf("Free Stack at setup is:  %d \r\n", (uint32_t)StackPtrAtStart - (uint32_t)StackPtrEnd);
+
+	esp_chipid = String((uint16_t)(ESP.getEfuseMac() >> 32), HEX); // for esp32
+	esp_chipid += String((uint32_t)ESP.getEfuseMac(), HEX);
+	esp_chipid.toUpperCase();
+	cfg::initNonTrivials(esp_chipid.c_str());
+	WiFi.persistent(false);
+
+	debug_outln_info(F("MobileAir: " SOFTWARE_VERSION_STR "/"), String(CURRENT_LANG));
+
+	init_config();
 
 	Wire.begin(I2C_PIN_SDA, I2C_PIN_SCL);
 
@@ -4157,17 +4168,18 @@ void setup()
 
 		while (!GPSdata.checked)
 		{
-			while (serialGPS.available() > 0)
+			while (serialGPS.available() > 0 && (!newGPSdata || !GPSdata.checked))
 			{
 				if (gps.encode(serialGPS.read()))
 				{
-					Serial.println(F("First GPS coordinates"));
+					Debug.println(F("First GPS coordinates"));
 					GPSdata = getGPSdata();
+					newGPSdata = true;
 				}
 			}
 			if (millis() > 5000 && gps.charsProcessed() < 10)
 			{
-				Serial.println(F("No GPS detected: check wiring."));
+				Debug.println(F("No GPS detected: check wiring."));
 				GPSdata = {0, 0, 0, 0, 0, 0, -1.0, -1.0, -1.0, false};
 			}
 		}
@@ -4176,11 +4188,11 @@ void setup()
 		{
 			coordinates = true;
 
-			Serial.println(F("GPS coordinates found!"));
+			Debug.println(F("GPS coordinates found!"));
 
 			listDir(SD, "/", 0);
 
-			file_name = String(GPSdata.year) + String("_") + String(GPSdata.month) + String("_") + String(GPSdata.day) + String("_") + String(GPSdata.hour) + String("_") + String(GPSdata.minute) + String("_") + String(GPSdata.second) + String(".csv");
+			file_name = String("/") + String(GPSdata.year) + String("_") + String(GPSdata.month) + String("_") + String(GPSdata.day) + String("_") + String(GPSdata.hour) + String("_") + String(GPSdata.minute) + String("_") + String(GPSdata.second) + String(".csv");
 
 			// const char data_file[30] = file_name.c_str();
 
@@ -4212,10 +4224,12 @@ void setup()
 
 			writeFile(SD, file_name.c_str(), "");
 			appendFile(SD, file_name.c_str(), "Date;NextPM_PM1;NextPM_PM2_5;NextPM_PM10;NextPM_NC1;NextPM_NC2_5;NextPM_NC10;CCS811_COV;Cairsens_NO2;BME280_T;BME280_H;BME280_P;Latitude;Longitude;Altitude\n");
+			Debug.println("Date;NextPM_PM1;NextPM_PM2_5;NextPM_PM10;NextPM_NC1;NextPM_NC2_5;NextPM_NC10;CCS811_COV;Cairsens_NO2;BME280_T;BME280_H;BME280_P;Latitude;Longitude;Altitude\n");
 			file_created = true;
 		}
 	}
 
+	newGPSdata = false;
 	Debug.printf("End of void setup()\n");
 	starttime_waiter = millis();
 
@@ -4330,23 +4344,6 @@ void loop()
 	}
 	last_micro = act_micro;
 
-	if (cfg::has_gps)
-	{
-
-		while (serialGPS.available() > 0)
-		{
-			if (gps.encode(serialGPS.read()))
-			{
-				GPSdata = getGPSdata();
-			}
-		}
-
-		if (millis() > 5000 && gps.charsProcessed() < 10)
-		{
-			Serial.println(F("No GPS"));
-			GPSdata = {0, 0, 0, 0, 0, 0, -1.0, -1.0, -1.0, false};
-		}
-	}
 	if (cfg::npm_read)
 	{
 		if ((msSince(starttime_NPM) > SAMPLETIME_NPM_MS && npm_val_count == 0) || send_now)
@@ -4388,6 +4385,25 @@ void loop()
 
 	if (send_now && cfg::sending_intervall_ms >= 120000)
 	{
+
+	if (cfg::has_gps)
+	{
+
+		while (serialGPS.available() > 0 && !newGPSdata)
+		{
+			if (gps.encode(serialGPS.read()))
+			{
+				GPSdata = getGPSdata();
+				newGPSdata = true;
+			}
+		}
+
+		if (millis() > 5000 && gps.charsProcessed() < 10)
+		{
+			Debug.println(F("No GPS"));
+			GPSdata = {0, 0, 0, 0, 0, 0, -1.0, -1.0, -1.0, false};
+		}
+	}
 
 		void *SpActual = NULL;
 		Debug.printf("Free Stack at send_now is: %d \r\n", (uint32_t)&SpActual - (uint32_t)StackPtrEnd);
@@ -4460,20 +4476,21 @@ void loop()
 				datacsv += "0";
 			}
 			datacsv += String(GPSdata.hour);
-			datacsv += "-";
+			datacsv += ":";
 
 			if (GPSdata.minute < 10)
 			{
 				datacsv += "0";
 			}
 			datacsv += String(GPSdata.minute);
-			datacsv += "-";
+			datacsv += ":";
 
 			if (GPSdata.second < 10)
 			{
 				datacsv += "0";
 			}
 			datacsv += String(GPSdata.second);
+			datacsv += "Z";
 			datacsv += ";";
 			datacsv += String(last_value_NPM_P0);
 			datacsv += ";";
@@ -4497,14 +4514,16 @@ void loop()
 			datacsv += ";";
 			datacsv += String(last_value_BMX280_P);
 			datacsv += ";";
-			datacsv += String(GPSdata.latitude);
+			datacsv += String(GPSdata.latitude,8);
 			datacsv += ";";
-			datacsv += String(GPSdata.longitude);
+			datacsv += String(GPSdata.longitude,8);
 			datacsv += ";";
 			datacsv += String(GPSdata.altitude);
 			datacsv += "\n";
 
 			appendFile(SD, file_name.c_str(), datacsv.c_str());
+
+			Debug.println(datacsv);
 			count_recorded += 1;
 			last_datacsv_string = std::move(datacsv);
 		}
@@ -4618,8 +4637,6 @@ void loop()
 			sensor_restart();
 		}
 
-		//METRRE SECU POUR SAVE DATA
-
 		// Resetting for next sampling
 		last_datajson_string = std::move(datajson);
 		sample_count = 0;
@@ -4627,6 +4644,7 @@ void loop()
 		min_micro = 1000000000;
 		max_micro = 0;
 		sum_send_time = 0;
+		newGPSdata = false;
 
 		// if (cfg::has_led_value)
 		// {
@@ -4656,7 +4674,7 @@ void loop()
 
 	if (sample_count % 500 == 0)
 	{
-		//		Serial.println(ESP.getFreeHeap(),DEC);
+		//		Debug.println(ESP.getFreeHeap(),DEC);
 	}
 }
 

@@ -133,6 +133,7 @@ const char INTL_LORA_EXPLANATION[] = "Copier/Coller les valeurs depuis la consol
 const char INTL_LORA_ACTIVATION[] = "Activer la communication LoRaWAN";
 const char INTL_WIFI_ACTIVATION[] = "Activer la communication WiFi";
 const char INTL_WIFI_PERMANENT[] = "WiFi permanent";
+const char INTL_GPS[] = "Activer le GPS";
 const char INTL_NBIOT_ACTIVATION[] = "Activer la communication NBIoT";
 const char INTL_NBIOT_EXPLANATION[] = "Cocher les deux check boxes et redémarrer pour activer la configuration";
 const char INTL_NBIOT_CONFIGURATION[] = "Activer le mode configuration";
